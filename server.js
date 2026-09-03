@@ -1,17 +1,19 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
+app.use(cors());
+
 const server = http.createServer(app);
 
 const io = new Server(server, {
   cors: {
-    origin: "*", // 모든 도메인(Google Apps Script 포함) 허용
-    methods: ["GET", "POST"],
-    credentials: true
+    origin: "*",
+    methods: ["GET", "POST"]
   },
-  transports: ['websocket', 'polling'] // 연결 안정성 확보
+  allowEIO3: true
 });
 
 const rooms = {};
@@ -19,7 +21,7 @@ const rooms = {};
 const RECIPES = ['불고기버거', '빅맥버거', '슈비버거'];
 const EMOJIS = ['👨‍💼', '👩‍🦰', '🧔', '👩‍🎨', '👨‍🍳', '🧑‍💻', '👵'];
 
-// 1P 구획 X좌표 (100 ~ 450 범위) / 2P 구획 X좌표 (550 ~ 900 범위)
+// 1P 구획 X좌표 (70~270 범위) / 2P 구획 X좌표 (550~750 범위)
 function createInitialCustomers(isP2 = false) {
   const custs = [];
   const baseLeft = isP2 ? 550 : 70;
