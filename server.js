@@ -34,6 +34,32 @@ function createInitialCustomers() {
   return custs;
 }
 
+// 클라이언트로 보낼 순수 데이터 추출 함수 (타이머 객체 제외)
+function getCleanRoomData(room) {
+  return {
+    gameTime: room.gameTime,
+    isStarted: room.isStarted,
+    p1: room.p1 ? {
+      name: room.p1.name,
+      x: room.p1.x,
+      y: room.p1.y,
+      score: room.p1.score,
+      holding: room.p1.holding,
+      assemblyTable: room.p1.assemblyTable,
+      customers: room.p1.customers
+    } : null,
+    p2: room.p2 ? {
+      name: room.p2.name,
+      x: room.p2.x,
+      y: room.p2.y,
+      score: room.p2.score,
+      holding: room.p2.holding,
+      assemblyTable: room.p2.assemblyTable,
+      customers: room.p2.customers
+    } : null
+  };
+}
+
 app.get("/", (req, res) => res.send("Burger Tycoon Server Running"));
 
 io.on("connection", (socket) => {
@@ -66,7 +92,7 @@ io.on("connection", (socket) => {
     }
 
     socket.emit("roleAssigned", { role: socket.role, roomCode });
-    io.to(roomCode).emit("roomStateUpdate", room);
+    io.to(roomCode).emit("roomStateUpdate", getCleanRoomData(room));
   });
 
   socket.on("requestStartGame", ({ roomCode }) => {
@@ -97,16 +123,17 @@ io.on("connection", (socket) => {
           }
         });
 
-        io.to(roomCode).emit("syncGame", room);
+        const cleanData = getCleanRoomData(room);
+        io.to(roomCode).emit("syncGame", cleanData);
 
         if (room.gameTime <= 0) {
           clearInterval(room.timerInterval);
           room.isStarted = false;
-          io.to(roomCode).emit("gameOver", room);
+          io.to(roomCode).emit("gameOver", cleanData);
         }
       }, 1000);
 
-      io.to(roomCode).emit("gameStart", room);
+      io.to(roomCode).emit("gameStart", getCleanRoomData(room));
     }
   });
 
@@ -115,7 +142,7 @@ io.on("connection", (socket) => {
     if (room && room.isStarted) {
       if (role === "P1" && room.p1) Object.assign(room.p1, data);
       else if (role === "P2" && room.p2) Object.assign(room.p2, data);
-      socket.to(roomCode).emit("syncGame", room);
+      socket.to(roomCode).emit("syncGame", getCleanRoomData(room));
     }
   });
 
@@ -137,7 +164,7 @@ io.on("connection", (socket) => {
         c.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
         c.timeLeft = 40;
 
-        io.to(roomCode).emit("syncGame", room);
+        io.to(roomCode).emit("syncGame", getCleanRoomData(room));
       }
     }
   });
@@ -149,7 +176,7 @@ io.on("connection", (socket) => {
       if (room.p1 && room.p1.id === socket.id) room.p1 = null;
       if (room.p2 && room.p2.id === socket.id) room.p2 = null;
       if (!room.p1 && !room.p2 && room.timerInterval) clearInterval(room.timerInterval);
-      io.to(roomCode).emit("roomStateUpdate", room);
+      io.to(roomCode).emit("roomStateUpdate", getCleanRoomData(room));
     }
   });
 });
