@@ -14,7 +14,6 @@ const rooms = {};
 const RECIPES = ['불고기버거', '빅맥버거', '슈비버거'];
 const EMOJIS = ['👨‍💼', '👩‍🦰', '🧔', '👩‍🎨', '👨‍🍳', '🧑‍💻', '👵'];
 
-// 기본 손님 4명 생성 함수
 function createInitialCustomers() {
   const custs = [];
   const startX = 100;
@@ -47,7 +46,7 @@ io.on("connection", (socket) => {
         p1: null,
         p2: null,
         spectators: [],
-        gameTime: 90, // 제한시간 1분 30초 (90초)
+        gameTime: 90,
         isStarted: false,
         timerInterval: null
       };
@@ -70,25 +69,23 @@ io.on("connection", (socket) => {
     io.to(roomCode).emit("roomStateUpdate", room);
   });
 
-  // 1P의 게임 시작 요청
   socket.on("requestStartGame", ({ roomCode }) => {
     const room = rooms[roomCode];
     if (room && socket.role === "P1" && !room.isStarted) {
       room.isStarted = true;
       room.gameTime = 90;
 
-      // 1초 마다 타이머 & 손님 대기시간 차감
+      if (room.timerInterval) clearInterval(room.timerInterval);
+
       room.timerInterval = setInterval(() => {
         room.gameTime--;
 
-        // P1, P2 개별 손님 시간 차감 및 초과시 감점
         ["p1", "p2"].forEach(pKey => {
-          if (room[pKey]) {
+          if (room[pKey] && room[pKey].customers) {
             room[pKey].customers.forEach((c) => {
               if (c.active) {
                 c.timeLeft--;
                 if (c.timeLeft <= 0) {
-                  // 손님 대기시간 초과 (40초 경과) -> -15점 감점 후 리셋
                   room[pKey].score = Math.max(0, room[pKey].score - 15);
                   c.order = RECIPES[Math.floor(Math.random() * RECIPES.length)];
                   c.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
@@ -102,7 +99,6 @@ io.on("connection", (socket) => {
 
         io.to(roomCode).emit("syncGame", room);
 
-        // 제한시간 종료 처리
         if (room.gameTime <= 0) {
           clearInterval(room.timerInterval);
           room.isStarted = false;
@@ -123,12 +119,11 @@ io.on("connection", (socket) => {
     }
   });
 
-  // 서빙 처리 (성공 +50 / 오배송 -20)
   socket.on("serveOrder", ({ roomCode, role, customerIndex, isSuccess }) => {
     const room = rooms[roomCode];
     if (room && room.isStarted) {
       const player = role === "P1" ? room.p1 : room.p2;
-      if (player) {
+      if (player && player.customers && player.customers[customerIndex]) {
         if (isSuccess) {
           player.score += 50;
           io.to(roomCode).emit("tickerUpdate", `🍔 [서빙 성공] ${player.name} 선수가 버거 전송 완료! (+50점)`);
@@ -137,7 +132,6 @@ io.on("connection", (socket) => {
           io.to(roomCode).emit("tickerUpdate", `❌ [오배송] ${player.name} 선수가 레시피를 틀렸습니다! (-20점)`);
         }
 
-        // 해당 손님 즉시 새 주문으로 교체 및 시간 40초 리셋
         const c = player.customers[customerIndex];
         c.order = RECIPES[Math.floor(Math.random() * RECIPES.length)];
         c.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
