@@ -1,18 +1,30 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
-const cors = require("cors");
 
 const app = express();
-app.use(cors());
+
+// 모든 HTTP 요청에 대한 CORS 헤더 강제 부여
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
+  }
+  next();
+});
 
 const server = http.createServer(app);
 
+// Socket.io CORS 및 WebSocket 전달 옵션 강제
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"]
+    methods: ["GET", "POST"],
+    credentials: false
   },
+  transports: ['websocket'], // polling 차단
   allowEIO3: true
 });
 
@@ -21,7 +33,6 @@ const rooms = {};
 const RECIPES = ['불고기버거', '빅맥버거', '슈비버거'];
 const EMOJIS = ['👨‍💼', '👩‍🦰', '🧔', '👩‍🎨', '👨‍🍳', '🧑‍💻', '👵'];
 
-// 1P 구획 X좌표 (70~270 범위) / 2P 구획 X좌표 (550~750 범위)
 function createInitialCustomers(isP2 = false) {
   const custs = [];
   const baseLeft = isP2 ? 550 : 70;
@@ -219,5 +230,5 @@ io.on("connection", (socket) => {
   });
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
