@@ -1,30 +1,19 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const cors = require("cors");
 
 const app = express();
-
-// 모든 HTTP 요청에 대한 CORS 헤더 강제 부여
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-  next();
-});
+app.use(cors());
 
 const server = http.createServer(app);
 
-// Socket.io CORS 및 WebSocket 전달 옵션 강제
+// Socket.io 옵션 최소화 및 호환성 확보
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"],
-    credentials: false
+    methods: ["GET", "POST"]
   },
-  transports: ['websocket'], // polling 차단
   allowEIO3: true
 });
 
@@ -82,6 +71,8 @@ function getCleanRoomData(room) {
 app.get("/", (req, res) => res.send("Burger Tycoon Server Running"));
 
 io.on("connection", (socket) => {
+  console.log("새 사용자 연결됨:", socket.id);
+
   socket.on("joinBurgerRoom", ({ roomCode, username }) => {
     socket.join(roomCode);
     socket.roomCode = roomCode;
@@ -190,29 +181,6 @@ io.on("connection", (socket) => {
       if (role === "P1" && room.p1) Object.assign(room.p1, data);
       else if (role === "P2" && room.p2) Object.assign(room.p2, data);
       socket.to(roomCode).emit("syncGame", getCleanRoomData(room));
-    }
-  });
-
-  socket.on("serveOrder", ({ roomCode, role, customerIndex, isSuccess }) => {
-    const room = rooms[roomCode];
-    if (room && room.isStarted) {
-      const player = role === "P1" ? room.p1 : room.p2;
-      if (player && player.customers && player.customers[customerIndex]) {
-        if (isSuccess) {
-          player.score += 50;
-          io.to(roomCode).emit("tickerUpdate", `🍔 [서빙 성공] ${player.name} 주문 제작 완료! (+50점)`);
-        } else {
-          player.score = Math.max(0, player.score - 20);
-          io.to(roomCode).emit("tickerUpdate", `❌ [오배송] ${player.name} 레시피가 다릅니다! (-20점)`);
-        }
-
-        const c = player.customers[customerIndex];
-        c.order = RECIPES[Math.floor(Math.random() * RECIPES.length)];
-        c.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
-        c.timeLeft = 40;
-
-        io.to(roomCode).emit("syncGame", getCleanRoomData(room));
-      }
     }
   });
 
