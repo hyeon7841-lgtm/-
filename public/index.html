@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>실시간 1v1 대전</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #1a1a1a; color: white; margin: 0; padding: 20px; }
+        #canvas { background: #222; border: 2px solid #555; display: block; margin: 10px auto; }
+        #status { font-size: 1.2rem; color: #4caf50; }
+        #countdown-display { font-size: 3rem; color: #ffeb3b; height: 60px; }
+        button { padding: 10px 20px; font-size: 1rem; cursor: pointer; }
+        input { padding: 10px; font-size: 1rem; }
+    </style>
+</head>
+<body>
+    <h1>실시간 1v1 대전 게임</h1>
+
+    <div id="login-ui">
+        <input type="text" id="username" placeholder="계정명 입력">
+        <button onclick="join()">접속 및 매칭</button>
+    </div>
+
+    <div id="game-ui" style="display:none;">
+        <div id="status">상대방을 기다리는 중...</div>
+        <div id="countdown-display"></div>
+        <button id="start-btn" style="display:none;" onclick="startCountdown()">게임 시작 (1P만 가능)</button>
+        <canvas id="canvas" width="800" height="600"></canvas>
+    </div>
+
+    <script>
+        const socket = io();
+        let myPlayerNumber = null;
+        let currentRoomId = null;
+        let gameRunning = false;
+
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let p1 = { x: 100, y: 300, color: '#ff4757', name: '1P' };
+        let p2 = { x: 700, y: 300, color: '#1e90ff', name: '2P' };
+        const keys = {};
+
+        function join() {
+            const name = document.getElementById('username').value.trim();
+            if (!name) return alert('계정명을 입력하세요!');
+            socket.emit('joinGame', name);
+            document.getElementById('login-ui').style.display = 'none';
+            document.getElementById('game-ui').style.display = 'block';
+        }
+
+        socket.on('playerAssigned', (data) => {
+            myPlayerNumber = data.playerNumber;
+            document.getElementById('status').innerText = `${data.username}님 (${myPlayerNumber}P) - 대기 중...`;
+        });
+
+        socket.on('matchFound', (data) => {
+            currentRoomId = data.roomId;
+            p1.name = data.p1;
+            p2.name = data.p2;
+            document.getElementById('status').innerText = `매칭 완료! 1P: ${data.p1} VS 2P: ${data.p2}`;
+            
+            if (myPlayerNumber === 1) {
+                document.getElementById('start-btn').style.display = 'inline-block';
+            }
+        });
+
+        function startCountdown() {
+            document.getElementById('start-btn').style.display = 'none';
+            socket.emit('requestStart', currentRoomId);
+        }
+
+        socket.on('countdown', (count) => {
+            document.getElementById('countdown-display').innerText = count > 0 ? count : 'START!';
+        });
+
+        socket.on('gameStart', (initialPositions) => {
+            document.getElementById('countdown-display').innerText = '';
+            gameRunning = true;
+            p1.x = initialPositions.p1.x; p1.y = initialPositions.p1.y;
+            p2.x = initialPositions.p2.x; p2.y = initialPositions.p2.y;
+            requestAnimationFrame(gameLoop);
+        });
+
+        socket.on('opponentMoved', (data) => {
+            if (data.playerNumber === 1) { p1.x = data.x; p1.y = data.y; }
+            else { p2.x = data.x; p2.y = data.y; }
+        });
+
+        window.addEventListener('keydown', e => keys[e.key] = true);
+        window.addEventListener('keyup', e => keys[e.key] = false);
+
+        function gameLoop() {
+            if (!gameRunning) return;
+
+            let moved = false;
+            const speed = 5;
+            const me = myPlayerNumber === 1 ? p1 : p2;
+
+            if (keys['ArrowUp'] && me.y > 20) { me.y -= speed; moved = true; }
+            if (keys['ArrowDown'] && me.y < 580) { me.y += speed; moved = true; }
+            if (keys['ArrowLeft'] && me.x > 20) { me.x -= speed; moved = true; }
+            if (keys['ArrowRight'] && me.x < 780) { me.x += speed; moved = true; }
+
+            if (moved) {
+                socket.emit('playerMove', {
+                    roomId: currentRoomId,
+                    playerNumber: myPlayerNumber,
+                    x: me.x,
+                    y: me.y
+                });
+            }
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            ctx.fillStyle = p1.color;
+            ctx.beginPath(); ctx.arc(p1.x, p1.y, 20, 0, Math.PI * 2); ctx.fill();
+            ctx.fillText(p1.name, p1.x - 15, p1.y - 25);
+
+            ctx.fillStyle = p2.color;
+            ctx.beginPath(); ctx.arc(p2.x, p2.y, 20, 0, Math.PI * 2); ctx.fill();
+            ctx.fillText(p2.name, p2.x - 15, p2.y - 25);
+
+            requestAnimationFrame(gameLoop);
+        }
+    </script>
+</body>
+</html>
