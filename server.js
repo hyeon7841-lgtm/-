@@ -14,16 +14,17 @@ const rooms = {};
 const RECIPES = ['불고기버거', '빅맥버거', '슈비버거'];
 const EMOJIS = ['👨‍💼', '👩‍🦰', '🧔', '👩‍🎨', '👨‍🍳', '🧑‍💻', '👵'];
 
-function createInitialCustomers() {
+// 1P 구획 X좌표 (100 ~ 450 범위) / 2P 구획 X좌표 (550 ~ 900 범위)
+function createInitialCustomers(isP2 = false) {
   const custs = [];
-  const startX = 100;
-  const gap = 220;
-  for (let i = 0; i < 4; i++) {
+  const baseLeft = isP2 ? 550 : 70;
+  const gap = 100;
+  for (let i = 0; i < 3; i++) {
     custs.push({
       id: i,
-      x: startX + (i * gap),
-      y: 170,
-      serveArea: { x: startX + (i * gap) - 40, y: 180, w: 100, h: 80 },
+      x: baseLeft + (i * gap),
+      y: 180,
+      serveArea: { x: baseLeft + (i * gap) - 30, y: 190, w: 80, h: 70 },
       order: RECIPES[Math.floor(Math.random() * RECIPES.length)],
       timeLeft: 40,
       maxTime: 40,
@@ -34,11 +35,11 @@ function createInitialCustomers() {
   return custs;
 }
 
-// 클라이언트로 보낼 순수 데이터 추출 함수 (타이머 객체 제외)
 function getCleanRoomData(room) {
   return {
     gameTime: room.gameTime,
     isStarted: room.isStarted,
+    spectators: room.spectators || [],
     p1: room.p1 ? {
       name: room.p1.name,
       x: room.p1.x,
@@ -81,60 +82,88 @@ io.on("connection", (socket) => {
     const room = rooms[roomCode];
 
     if (!room.p1) {
-      room.p1 = { id: socket.id, name: username, x: 220, y: 420, score: 0, holding: null, assemblyTable: [], customers: createInitialCustomers() };
+      room.p1 = { id: socket.id, name: username, x: 200, y: 430, score: 0, holding: null, assemblyTable: [], customers: createInitialCustomers(false) };
       socket.role = "P1";
     } else if (!room.p2) {
-      room.p2 = { id: socket.id, name: username, x: 780, y: 420, score: 0, holding: null, assemblyTable: [], customers: createInitialCustomers() };
+      room.p2 = { id: socket.id, name: username, x: 680, y: 430, score: 0, holding: null, assemblyTable: [], customers: createInitialCustomers(true) };
       socket.role = "P2";
     } else {
       socket.role = "SPECTATOR";
-      room.spectators.push(socket.id);
+      room.spectators.push({ id: socket.id, name: username });
     }
 
     socket.emit("roleAssigned", { role: socket.role, roomCode });
     io.to(roomCode).emit("roomStateUpdate", getCleanRoomData(room));
   });
 
+  const startNewGameLogic = (roomCode) => {
+    const room = rooms[roomCode];
+    if (!room) return;
+
+    room.isStarted = true;
+    room.gameTime = 90;
+
+    if (room.p1) {
+      room.p1.score = 0;
+      room.p1.x = 200;
+      room.p1.y = 430;
+      room.p1.holding = null;
+      room.p1.assemblyTable = [];
+      room.p1.customers = createInitialCustomers(false);
+    }
+    if (room.p2) {
+      room.p2.score = 0;
+      room.p2.x = 680;
+      room.p2.y = 430;
+      room.p2.holding = null;
+      room.p2.assemblyTable = [];
+      room.p2.customers = createInitialCustomers(true);
+    }
+
+    if (room.timerInterval) clearInterval(room.timerInterval);
+
+    room.timerInterval = setInterval(() => {
+      room.gameTime--;
+
+      ["p1", "p2"].forEach(pKey => {
+        if (room[pKey] && room[pKey].customers) {
+          room[pKey].customers.forEach((c) => {
+            if (c.active) {
+              c.timeLeft--;
+              if (c.timeLeft <= 0) {
+                room[pKey].score = Math.max(0, room[pKey].score - 15);
+                c.order = RECIPES[Math.floor(Math.random() * RECIPES.length)];
+                c.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
+                c.timeLeft = 40;
+                io.to(roomCode).emit("tickerUpdate", `⏳ [시간초과] ${room[pKey].name} 손님이 떠났습니다! (-15점)`);
+              }
+            }
+          });
+        }
+      });
+
+      const cleanData = getCleanRoomData(room);
+      io.to(roomCode).emit("syncGame", cleanData);
+
+      if (room.gameTime <= 0) {
+        clearInterval(room.timerInterval);
+        room.isStarted = false;
+        io.to(roomCode).emit("gameOver", cleanData);
+      }
+    }, 1000);
+
+    io.to(roomCode).emit("gameStart", getCleanRoomData(room));
+  };
+
   socket.on("requestStartGame", ({ roomCode }) => {
     const room = rooms[roomCode];
     if (room && socket.role === "P1" && !room.isStarted) {
-      room.isStarted = true;
-      room.gameTime = 90;
-
-      if (room.timerInterval) clearInterval(room.timerInterval);
-
-      room.timerInterval = setInterval(() => {
-        room.gameTime--;
-
-        ["p1", "p2"].forEach(pKey => {
-          if (room[pKey] && room[pKey].customers) {
-            room[pKey].customers.forEach((c) => {
-              if (c.active) {
-                c.timeLeft--;
-                if (c.timeLeft <= 0) {
-                  room[pKey].score = Math.max(0, room[pKey].score - 15);
-                  c.order = RECIPES[Math.floor(Math.random() * RECIPES.length)];
-                  c.emoji = EMOJIS[Math.floor(Math.random() * EMOJIS.length)];
-                  c.timeLeft = 40;
-                  io.to(roomCode).emit("tickerUpdate", `⏳ [시간초과] ${room[pKey].name} 손님이 지쳐서 떠났습니다! (-15점)`);
-                }
-              }
-            });
-          }
-        });
-
-        const cleanData = getCleanRoomData(room);
-        io.to(roomCode).emit("syncGame", cleanData);
-
-        if (room.gameTime <= 0) {
-          clearInterval(room.timerInterval);
-          room.isStarted = false;
-          io.to(roomCode).emit("gameOver", cleanData);
-        }
-      }, 1000);
-
-      io.to(roomCode).emit("gameStart", getCleanRoomData(room));
+      startNewGameLogic(roomCode);
     }
+  });
+
+  socket.on("requestRestartGame", ({ roomCode }) => {
+    startNewGameLogic(roomCode);
   });
 
   socket.on("playerAction", ({ roomCode, role, data }) => {
@@ -153,10 +182,10 @@ io.on("connection", (socket) => {
       if (player && player.customers && player.customers[customerIndex]) {
         if (isSuccess) {
           player.score += 50;
-          io.to(roomCode).emit("tickerUpdate", `🍔 [서빙 성공] ${player.name} 선수가 버거 전송 완료! (+50점)`);
+          io.to(roomCode).emit("tickerUpdate", `🍔 [서빙 성공] ${player.name} 주문 제작 완료! (+50점)`);
         } else {
           player.score = Math.max(0, player.score - 20);
-          io.to(roomCode).emit("tickerUpdate", `❌ [오배송] ${player.name} 선수가 레시피를 틀렸습니다! (-20점)`);
+          io.to(roomCode).emit("tickerUpdate", `❌ [오배송] ${player.name} 레시피가 다릅니다! (-20점)`);
         }
 
         const c = player.customers[customerIndex];
@@ -175,6 +204,8 @@ io.on("connection", (socket) => {
       const room = rooms[roomCode];
       if (room.p1 && room.p1.id === socket.id) room.p1 = null;
       if (room.p2 && room.p2.id === socket.id) room.p2 = null;
+      room.spectators = room.spectators.filter(s => s.id !== socket.id);
+
       if (!room.p1 && !room.p2 && room.timerInterval) clearInterval(room.timerInterval);
       io.to(roomCode).emit("roomStateUpdate", getCleanRoomData(room));
     }
