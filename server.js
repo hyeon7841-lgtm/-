@@ -6,7 +6,12 @@ const app = express();
 const server = http.createServer(app);
 
 const io = new Server(server, {
-  cors: { origin: "*", methods: ["GET", "POST"] }
+  cors: {
+    origin: "*", // 모든 도메인(Google Apps Script 포함) 허용
+    methods: ["GET", "POST"],
+    credentials: true
+  },
+  transports: ['websocket', 'polling'] // 연결 안정성 확보
 });
 
 const rooms = {};
